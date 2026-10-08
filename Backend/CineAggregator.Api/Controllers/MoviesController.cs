@@ -1,5 +1,6 @@
 using CineAggregator.Api.Models;
 using CineAggregator.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
@@ -9,6 +10,7 @@ namespace CineAggregator.Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class MoviesController : ControllerBase
     {
         private readonly MovieService _movieService;
@@ -75,6 +77,14 @@ namespace CineAggregator.Api.Controllers
             {
                 return BadRequest(ex.Message);
             }
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpDelete("{id}")]
+        public IActionResult DeleteMovie(string id)
+        {
+            _movieService.DeleteMovie(id);
+            return NoContent();
         }
     }
 }

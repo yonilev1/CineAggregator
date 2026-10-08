@@ -3,7 +3,7 @@ import SearchBar from '../components/SearchBar';
 import Filters from '../components/Filters';
 import MovieCard from '../components/MovieCard';
 import Loading from '../components/Loading';
-import { getMovies, searchMovies, freeTextSearchMovies, filterMovies } from '../services/movieService';
+import { getMovies, searchMovies, freeTextSearchMovies, filterMovies, deleteMovie } from '../services/movieService';
 
 function Home() {
   const [movies, setMovies] = useState([]);
@@ -68,6 +68,15 @@ function Home() {
     }
   };
 
+  const handleDelete = async (id) => {
+    try {
+      await deleteMovie(id);
+      setMovies(movies.filter(m => m.id !== id));
+    } catch (err) {
+      setError("Failed to delete movie.");
+    }
+  };
+
   return (
     <div className="home-page">
       <h1>CineAggregator</h1>
@@ -86,7 +95,7 @@ function Home() {
       {!loading && !error && movies.length > 0 && (
         <div className="movies-grid">
           {movies.map(movie => (
-            <MovieCard key={movie.id} movie={movie} />
+            <MovieCard key={movie.id} movie={movie} onDelete={handleDelete} />
           ))}
         </div>
       )}

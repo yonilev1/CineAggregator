@@ -4,8 +4,14 @@ import Navbar from './components/Navbar'
 import Home from './pages/Home'
 import MovieDetails from './pages/MovieDetails'
 import Preferences from './pages/Preferences'
+import Login from './pages/Login'
+import { isAuthenticated } from './services/authService'
 
 function App() {
+  if (!isAuthenticated()) {
+    return <Login />
+  }
+
   return (
     <>
       <Navbar />

@@ -22,6 +22,8 @@ namespace CineAggregator.Api.Services
 
         public Movie GetMovieById(string id) => _mongoDbService.GetMovieById(id);
 
+        public void DeleteMovie(string id) => _mongoDbService.DeleteMovie(id);
+
         public List<Movie> SearchMovies(string query) => _mongoDbService.SearchMovies(query);
 
         public List<Movie> FreeTextSearchMovies(string query) => _mongoDbService.FreeTextSearchMovies(query);

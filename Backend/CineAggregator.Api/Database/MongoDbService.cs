@@ -11,6 +11,7 @@ namespace CineAggregator.Api.Database
     public class MongoDbService
     {
         private readonly IMongoCollection<Movie> _movies;
+        private readonly IMongoCollection<User> _users;
         private readonly ILogger<MongoDbService> _logger;
 
         public MongoDbService(IConfiguration config, ILogger<MongoDbService> logger)
@@ -22,6 +23,8 @@ namespace CineAggregator.Api.Database
             var client = new MongoClient(connectionString);
             var database = client.GetDatabase(databaseName);
             _movies = database.GetCollection<Movie>("movies");
+            _users = database.GetCollection<User>("users");
+            SeedUsers();
         }
 
         public List<Movie> GetAllMovies()
@@ -99,6 +102,22 @@ namespace CineAggregator.Api.Database
         public Movie GetMovieByExternalId(string id)
         {
             return _movies.Find(m => m.Id == id).FirstOrDefault();
+        }
+
+        public User GetUserByUsername(string username) => _users.Find(u => u.Username == username).FirstOrDefault();
+
+        public void DeleteMovie(string id) => _movies.DeleteOne(m => m.Id == id);
+
+        private void SeedUsers()
+        {
+            if (!_users.Find(_ => true).Any())
+            {
+                _users.InsertMany(new[]
+                {
+                    new User { Username = "admin", Password = "admin", Role = "Admin" },
+                    new User { Username = "user", Password = "user", Role = "User" }
+                });
+            }
         }
     }
 }
