@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 
-function SearchBar({ onSearch, onFreeTextSearch }) {
-  const [query, setQuery] = useState('');
+function SearchBar({ query, onQueryChange, onSearch, onFreeTextSearch }) {
   const [mode, setMode] = useState('exact');
 
   const handleSearch = (e) => {
@@ -19,7 +18,7 @@ function SearchBar({ onSearch, onFreeTextSearch }) {
         type="text" 
         placeholder={mode === 'exact' ? "Search by title..." : "Describe what you want..."} 
         value={query} 
-        onChange={(e) => setQuery(e.target.value)} 
+        onChange={(e) => onQueryChange(e.target.value)} 
       />
       <div className="search-mode">
         <label>

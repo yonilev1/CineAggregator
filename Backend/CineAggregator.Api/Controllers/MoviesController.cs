@@ -1,6 +1,5 @@
 using CineAggregator.Api.Models;
 using CineAggregator.Api.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
@@ -10,15 +9,16 @@ namespace CineAggregator.Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
     public class MoviesController : ControllerBase
     {
         private readonly MovieService _movieService;
         private readonly ILogger<MoviesController> _logger;
+        private readonly TmdbCatalogService _tmdbCatalogService;
 
-        public MoviesController(MovieService movieService, ILogger<MoviesController> logger)
+        public MoviesController(MovieService movieService, TmdbCatalogService tmdbCatalogService, ILogger<MoviesController> logger)
         {
             _movieService = movieService;
+            _tmdbCatalogService = tmdbCatalogService;
             _logger = logger;
         }
 
@@ -29,13 +29,35 @@ namespace CineAggregator.Api.Controllers
         }
 
         [HttpGet("{id}")]
-        public ActionResult<Movie> GetMovieById(string id)
+        public async Task<ActionResult<Movie>> GetMovieById(string id, CancellationToken cancellationToken)
         {
             var movie = _movieService.GetMovieById(id);
             if (movie == null)
             {
                 return NotFound();
             }
+
+            try
+            {
+                await _tmdbCatalogService.PopulateMovieDetailsAsync(movie, cancellationToken);
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is InvalidOperationException)
+            {
+                // Keep the local movie details page usable if TMDb metadata is temporarily unavailable.
+                _logger.LogWarning(ex, "Could not load cast/watch metadata for movie {MovieId}", id);
+            }
+
+            try
+            {
+                movie.RelatedMovies = await _tmdbCatalogService.GetRelatedMoviesAsync(id, cancellationToken);
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is InvalidOperationException)
+            {
+                // Details should still be available if the external related-title lookup fails.
+                _logger.LogWarning(ex, "Could not load related TMDb titles for movie {MovieId}", id);
+                movie.RelatedMovies = new List<Movie>();
+            }
+
             return Ok(movie);
         }
 
@@ -49,14 +71,52 @@ namespace CineAggregator.Api.Controllers
             return Ok(_movieService.SearchMovies(query));
         }
 
-        [HttpGet("search/freetext")]
-        public ActionResult<List<Movie>> FreeTextSearch([FromQuery] string query)
+        [HttpGet("actor/{personId:int}/movies")]
+        public async Task<IActionResult> GetMoviesByActor(
+            int personId, [FromQuery] int page = 1, [FromQuery] string? genre = null,
+            [FromQuery] string? language = null, [FromQuery] string? platform = null,
+            [FromQuery] double? minRating = null, [FromQuery] string? sortBy = "relevance",
+            CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(query))
+            try
             {
-                return BadRequest("Query cannot be empty.");
+                var result = await _tmdbCatalogService.GetMoviesByActorAsync(
+                    personId, page, genre, language, platform, minRating, sortBy, cancellationToken);
+                return Ok(result);
             }
-            return Ok(_movieService.FreeTextSearchMovies(query));
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "TMDb actor filmography request failed for person {PersonId}", personId);
+                return StatusCode(502, "The external movie catalogue is temporarily unavailable.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "External movie catalogue is not configured");
+                return StatusCode(503, ex.Message);
+            }
+        }
+
+        [HttpGet("search/freetext")]
+        public async Task<IActionResult> FreeTextSearch(
+            [FromQuery] string? query, [FromQuery] int page = 1, [FromQuery] string? genre = null,
+            [FromQuery] string? language = null, [FromQuery] string? platform = null,
+            [FromQuery] double? minRating = null, [FromQuery] string? sortBy = "relevance", CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var result = await _tmdbCatalogService.SearchPageAsync(query, page, genre, language, platform, minRating, sortBy, cancellationToken);
+                return Ok(result);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "External movie catalogue request failed");
+                return StatusCode(502, "The external movie catalogue is temporarily unavailable.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "External movie catalogue is not configured");
+                return StatusCode(503, ex.Message);
+            }
         }
 
         [HttpGet("filter")]
@@ -77,14 +137,6 @@ namespace CineAggregator.Api.Controllers
             {
                 return BadRequest(ex.Message);
             }
-        }
-
-        [Authorize(Roles = "Admin")]
-        [HttpDelete("{id}")]
-        public IActionResult DeleteMovie(string id)
-        {
-            _movieService.DeleteMovie(id);
-            return NoContent();
         }
     }
 }

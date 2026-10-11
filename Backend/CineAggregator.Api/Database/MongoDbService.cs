@@ -11,7 +11,6 @@ namespace CineAggregator.Api.Database
     public class MongoDbService
     {
         private readonly IMongoCollection<Movie> _movies;
-        private readonly IMongoCollection<User> _users;
         private readonly ILogger<MongoDbService> _logger;
 
         public MongoDbService(IConfiguration config, ILogger<MongoDbService> logger)
@@ -23,8 +22,6 @@ namespace CineAggregator.Api.Database
             var client = new MongoClient(connectionString);
             var database = client.GetDatabase(databaseName);
             _movies = database.GetCollection<Movie>("movies");
-            _users = database.GetCollection<User>("users");
-            SeedUsers();
         }
 
         public List<Movie> GetAllMovies()
@@ -39,8 +36,8 @@ namespace CineAggregator.Api.Database
 
         public List<Movie> SearchMovies(string query)
         {
-            var filter = Builders<Movie>.Filter.Regex("title", new BsonRegularExpression(query, "i")) |
-                         Builders<Movie>.Filter.Regex("description", new BsonRegularExpression(query, "i"));
+            var filter = Builders<Movie>.Filter.Regex("title", new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(query), "i")) |
+                         Builders<Movie>.Filter.Regex("description", new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(query), "i"));
             return _movies.Find(filter).ToList();
         }
 
@@ -59,9 +56,9 @@ namespace CineAggregator.Api.Database
             var filters = new List<FilterDefinition<Movie>>();
             foreach (var word in words)
             {
-                var wordFilter = Builders<Movie>.Filter.Regex("title", new BsonRegularExpression(word, "i")) |
-                                 Builders<Movie>.Filter.Regex("description", new BsonRegularExpression(word, "i")) |
-                                 Builders<Movie>.Filter.Regex("genres", new BsonRegularExpression(word, "i"));
+                var wordFilter = Builders<Movie>.Filter.Regex("title", new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(word), "i")) |
+                                 Builders<Movie>.Filter.Regex("description", new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(word), "i")) |
+                                 Builders<Movie>.Filter.Regex("genres", new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(word), "i"));
                 filters.Add(wordFilter);
             }
 
@@ -96,28 +93,12 @@ namespace CineAggregator.Api.Database
 
         public void UpdateMovie(Movie movie)
         {
-            _movies.ReplaceOne(m => m.Id == movie.Id, movie);
+            _movies.ReplaceOne(m => m.Id == movie.Id, movie, new ReplaceOptions { IsUpsert = true });
         }
 
         public Movie GetMovieByExternalId(string id)
         {
             return _movies.Find(m => m.Id == id).FirstOrDefault();
-        }
-
-        public User GetUserByUsername(string username) => _users.Find(u => u.Username == username).FirstOrDefault();
-
-        public void DeleteMovie(string id) => _movies.DeleteOne(m => m.Id == id);
-
-        private void SeedUsers()
-        {
-            if (!_users.Find(_ => true).Any())
-            {
-                _users.InsertMany(new[]
-                {
-                    new User { Username = "admin", Password = "admin", Role = "Admin" },
-                    new User { Username = "user", Password = "user", Role = "User" }
-                });
-            }
         }
     }
 }

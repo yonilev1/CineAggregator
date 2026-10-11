@@ -28,6 +28,8 @@ services:
     environment:
       MongoDb__ConnectionString: mongodb://mongodb:27017
       MongoDb__DatabaseName: CineAggregator
+      Tmdb__ApiKey: ${MOVIE_API_KEY:-}
+      Tmdb__ReadAccessToken: ${TMDB_READ_ACCESS_TOKEN:-}
       RabbitMq__Host: rabbitmq
       RabbitMq__Port: 5672
     depends_on:

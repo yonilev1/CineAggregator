@@ -4,14 +4,9 @@ import Navbar from './components/Navbar'
 import Home from './pages/Home'
 import MovieDetails from './pages/MovieDetails'
 import Preferences from './pages/Preferences'
-import Login from './pages/Login'
-import { isAuthenticated } from './services/authService'
+import ActorMovies from './pages/ActorMovies'
 
 function App() {
-  if (!isAuthenticated()) {
-    return <Login />
-  }
-
   return (
     <>
       <Navbar />
@@ -19,6 +14,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/movie/:id" element={<MovieDetails />} />
+          <Route path="/actor/:id" element={<ActorMovies />} />
           <Route path="/preferences" element={<Preferences />} />
         </Routes>
       </div>

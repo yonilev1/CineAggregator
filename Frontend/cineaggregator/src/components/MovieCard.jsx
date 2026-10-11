@@ -1,9 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { getRole } from '../services/authService';
 
-function MovieCard({ movie, showScore, finalScore, onDelete }) {
+function MovieCard({ movie, showScore, finalScore }) {
   const poster = movie.posterUrl || "https://via.placeholder.com/300x450?text=No+Poster";
+  const isTv = String(movie.id).startsWith('tmdb-tv-');
+  const tmdbId = isTv ? String(movie.id).slice('tmdb-tv-'.length) : String(movie.id);
+  const watchUrl = `https://www.themoviedb.org/${isTv ? 'tv' : 'movie'}/${encodeURIComponent(tmdbId)}/watch`;
   
   return (
     <div className="movie-card">
@@ -19,11 +21,7 @@ function MovieCard({ movie, showScore, finalScore, onDelete }) {
           {(movie.languages && movie.languages[0]) || "N/A"} • {(movie.platforms && movie.platforms[0]) || "N/A"}
         </p>
         <Link to={`/movie/${movie.id}`} className="btn-view-details">View Details</Link>
-        {getRole() === 'Admin' && (
-          <button className="btn-delete" onClick={(e) => { e.preventDefault(); onDelete && onDelete(movie.id); }}>
-            Delete
-          </button>
-        )}
+        <a href={watchUrl} className="btn-watch-link" target="_blank" rel="noopener noreferrer">Where to Watch</a>
       </div>
     </div>
   );

@@ -36,5 +36,37 @@ namespace CineAggregator.Api.Models
         
         [BsonElement("aggregatedRating")]
         public double AggregatedRating { get; set; }
+
+        [BsonElement("popularity")]
+        public double Popularity { get; set; }
+
+        // Filled from TMDb when opening the details page; not persisted to MongoDB.
+        [BsonIgnore]
+        public List<Movie> RelatedMovies { get; set; } = new();
+
+        // Detail-page metadata is fetched live from TMDb and is not stored in MongoDB.
+        [BsonIgnore]
+        public List<CastMember> Cast { get; set; } = new();
+
+        [BsonIgnore]
+        public List<WatchProvider> WatchProviders { get; set; } = new();
+
+        [BsonIgnore]
+        public string WatchProvidersUrl { get; set; } = string.Empty;
+    }
+
+    public class CastMember
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Character { get; set; } = string.Empty;
+        public string? ProfileUrl { get; set; }
+    }
+
+    public class WatchProvider
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string? LogoUrl { get; set; }
     }
 }

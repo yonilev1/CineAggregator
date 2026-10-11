@@ -108,3 +108,32 @@ Ensure that `MOVIE_API_KEY` is exported in your terminal before running.
 | GET | `/api/movies` | Get a paginated list of movies, with optional filtering/search |
 | GET | `/api/movies/{id}` | Get a specific movie by ID |
 | POST | `/api/movies/recommendations` | Get personalized movie recommendations |
+
+## 16. Improved free-text search and catalogue refresh
+
+`GET /api/movies/search/freetext?query=...` now searches TMDb movie and TV catalogues as well as the local MongoDB collection. Results found remotely are stored locally. If an item already exists, its TMDb rating and vote count are refreshed on every search; locally-managed platform data is preserved. Common concept expansions (for example, immortality, reincarnation, hidden power, and isekai) broaden the search. Results are then ranked by text relevance and rating.
+
+Configure at least one TMDb credential before running the backend:
+
+- `Tmdb__ApiKey` (TMDb v3 API key), or
+- `Tmdb__ReadAccessToken` (TMDb v4 read access token).
+
+For local development, put the key in user secrets or an environment variable rather than committing a real key. Docker Compose can pass it with `Tmdb__ApiKey: ${MOVIE_API_KEY}` under the backend service.
+
+No external API can practically return every film ever made in a single request. This implementation searches the external catalogue on demand and gradually caches returned results; `/api/movies` lists the items cached so far. Concept expansion is a practical baseline, not a true embedding-based semantic search.
+
+## Search improvements (October 2026)
+
+- Title-like queries are sent to TMDb as a full phrase instead of generating a separate external search for every word. Exact, prefix, and phrase title matches rank ahead of descriptive matches.
+- Added sorting: best match, newest releases, top rated, most popular, oldest releases, and release year newest-first. The selected sorting and current filters are kept when loading the next page.
+- The “Показать больше” button is centered below the results, with a larger font and red background.
+
+After replacing the project files, rebuild and restart the containers from the folder containing `docker-compose.yml`:
+
+```powershell
+docker compose down
+docker compose up -d --build
+```
+
+This rebuilds the frontend and backend with the updated code. Do not add `-v` to `docker compose down`, so the MongoDB data volume is preserved.
+
