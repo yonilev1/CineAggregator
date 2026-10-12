@@ -481,6 +481,186 @@ public sealed class TmdbCatalogService
         }
         return score + movie.AggregatedRating / 100.0;
     }
+
+    public async Task<List<MovieSuggestionDto>> GetLiveSuggestionsAsync(string query, int limit = 8, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+            return new List<MovieSuggestionDto>();
+
+        var trimmedQuery = query.Trim();
+        var apiKey = _configuration["Tmdb:ApiKey"] ?? _configuration["MOVIE_API_KEY"];
+        var bearerToken = _configuration["Tmdb:ReadAccessToken"];
+
+        var found = new Dictionary<string, Movie>(StringComparer.OrdinalIgnoreCase);
+
+        // 1. Search local MongoDB
+        var allLocalMovies = _database.GetAllMovies();
+        foreach (var m in allLocalMovies)
+        {
+            if (CalculateSuggestionScore(trimmedQuery, m.Title, m.AggregatedRating) > 0)
+            {
+                found[m.Id] = m;
+            }
+        }
+
+        // 2. Query TMDb with query
+        if (!string.IsNullOrWhiteSpace(apiKey) || !string.IsNullOrWhiteSpace(bearerToken))
+        {
+            try
+            {
+                var json = await GetTmdbJsonAsync($"search/multi?query={Uri.EscapeDataString(trimmedQuery)}&include_adult=false&page=1", apiKey, bearerToken, cancellationToken);
+                foreach (var item in json["results"] as JArray ?? new JArray())
+                {
+                    var mediaType = (string?)item["media_type"];
+                    if (mediaType is not ("movie" or "tv")) continue;
+                    var movie = MapItem((JObject)item, mediaType);
+                    if (movie != null)
+                    {
+                        found[movie.Id] = movie;
+                        _movieService.ProcessMovie(movie);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "TMDb suggestion query failed for {Query}", trimmedQuery);
+            }
+
+            // 3. Typo-tolerance fallback for external queries if few direct matches
+            if (found.Count < 3 && trimmedQuery.Length >= 4)
+            {
+                var candidateBest = allLocalMovies
+                    .Select(m => new { Movie = m, Dist = LevenshteinDistance(trimmedQuery.ToLowerInvariant(), (m.Title ?? "").ToLowerInvariant()) })
+                    .OrderBy(x => x.Dist)
+                    .FirstOrDefault();
+
+                if (candidateBest != null && candidateBest.Dist <= 3 && candidateBest.Dist > 0)
+                {
+                    try
+                    {
+                        var fuzzyJson = await GetTmdbJsonAsync($"search/multi?query={Uri.EscapeDataString(candidateBest.Movie.Title)}&include_adult=false&page=1", apiKey, bearerToken, cancellationToken);
+                        foreach (var item in fuzzyJson["results"] as JArray ?? new JArray())
+                        {
+                            var mediaType = (string?)item["media_type"];
+                            if (mediaType is not ("movie" or "tv")) continue;
+                            var movie = MapItem((JObject)item, mediaType);
+                            if (movie != null)
+                            {
+                                found[movie.Id] = movie;
+                                _movieService.ProcessMovie(movie);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "TMDb fuzzy correction search failed");
+                    }
+                }
+            }
+        }
+
+        // 4. Score, rank, and map to DTOs
+        var ranked = found.Values
+            .Select(m => new { Movie = m, Score = CalculateSuggestionScore(trimmedQuery, m.Title, m.AggregatedRating) })
+            .Where(x => x.Score > 0)
+            .OrderByDescending(x => x.Score)
+            .ThenByDescending(x => x.Movie.AggregatedRating)
+            .Take(limit)
+            .Select(x => new MovieSuggestionDto
+            {
+                Id = x.Movie.Id,
+                Title = x.Movie.Title,
+                ReleaseYear = x.Movie.ReleaseYear,
+                PosterUrl = x.Movie.PosterUrl,
+                AggregatedRating = Math.Round(x.Movie.AggregatedRating, 2),
+                Genres = x.Movie.Genres ?? new List<string>()
+            })
+            .ToList();
+
+        return ranked;
+    }
+
+    private static int LevenshteinDistance(string s, string t)
+    {
+        if (string.IsNullOrEmpty(s)) return t?.Length ?? 0;
+        if (string.IsNullOrEmpty(t)) return s.Length;
+
+        int n = s.Length;
+        int m = t.Length;
+        var d = new int[n + 1, m + 1];
+
+        for (int i = 0; i <= n; d[i, 0] = i++) ;
+        for (int j = 0; j <= m; d[0, j] = j++) ;
+
+        for (int i = 1; i <= n; i++)
+        {
+            for (int j = 1; j <= m; j++)
+            {
+                int cost = (t[j - 1] == s[i - 1]) ? 0 : 1;
+                d[i, j] = Math.Min(
+                    Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1),
+                    d[i - 1, j - 1] + cost);
+            }
+        }
+        return d[n, m];
+    }
+
+    private static double CalculateSuggestionScore(string query, string title, double rating)
+    {
+        if (string.IsNullOrWhiteSpace(query) || string.IsNullOrWhiteSpace(title)) return 0;
+        static string Clean(string str) => Regex.Replace(str.ToLowerInvariant(), @"[^\p{L}\p{N}]+", " ").Trim();
+        var q = Clean(query);
+        var t = Clean(title);
+
+        if (t == q) return 10000;
+        if (t.StartsWith(q, StringComparison.Ordinal)) return 8000;
+        if (t.Contains(q, StringComparison.Ordinal)) return 6000;
+
+        int fullDist = LevenshteinDistance(q, t);
+        int maxLen = Math.Max(q.Length, t.Length);
+        if (maxLen > 0)
+        {
+            double similarity = 1.0 - ((double)fullDist / maxLen);
+            if (similarity >= 0.55)
+            {
+                return 4000 * similarity + (rating / 10.0);
+            }
+        }
+
+        var qWords = q.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var tWords = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        double wordMatchScore = 0;
+        foreach (var qw in qWords)
+        {
+            foreach (var tw in tWords)
+            {
+                if (tw == qw)
+                {
+                    wordMatchScore += 1000;
+                    break;
+                }
+                if (tw.StartsWith(qw, StringComparison.Ordinal))
+                {
+                    wordMatchScore += 600;
+                    break;
+                }
+                int dist = LevenshteinDistance(qw, tw);
+                int maxAllowed = qw.Length <= 4 ? 1 : 2;
+                if (dist <= maxAllowed)
+                {
+                    wordMatchScore += 500 - (dist * 100);
+                    break;
+                }
+            }
+        }
+
+        if (wordMatchScore > 0)
+        {
+            return wordMatchScore + (rating / 10.0);
+        }
+
+        return 0;
+    }
 }
 
 public sealed class CatalogSearchResult

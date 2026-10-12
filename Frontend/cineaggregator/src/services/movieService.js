@@ -58,6 +58,19 @@ export async function filterMovies(filters, page = 1) {
     return getCatalogPage({ page, filters });
 }
 
+export async function getMovieSuggestions(query, limit = 8, signal = null) {
+    if (!query || query.trim().length < 2) return [];
+    const params = new URLSearchParams();
+    params.set("query", query.trim());
+    params.set("limit", String(limit));
+    const response = await fetch(`${API_URL}/suggestions?${params.toString()}`, {
+        headers: getAuthHeaders(),
+        signal
+    });
+    if (!response.ok) return [];
+    return response.json();
+}
+
 export async function getMoviesByActor(personId, options = {}) {
     const params = new URLSearchParams();
     params.set("page", String(options.page || 1));

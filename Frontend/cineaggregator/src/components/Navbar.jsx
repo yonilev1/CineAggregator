@@ -25,8 +25,6 @@ function Navbar() {
       <div className="navbar-left">
         <Link to="/" className="navbar-brand">CineAggregator</Link>
         <div className="navbar-links">
-          <Link to="/">Movies</Link>
-          <Link to="/preferences">Preferences</Link>
           {user && isAdmin() && (
             <Link to="/admin" className="admin-nav-link">
               ⚙️ Admin Panel

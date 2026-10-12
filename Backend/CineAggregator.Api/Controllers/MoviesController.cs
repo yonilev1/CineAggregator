@@ -71,6 +71,26 @@ namespace CineAggregator.Api.Controllers
             return Ok(_movieService.SearchMovies(query));
         }
 
+        [HttpGet("suggestions")]
+        public async Task<IActionResult> GetLiveSuggestions([FromQuery] string query, [FromQuery] int limit = 8, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+            {
+                return Ok(new List<MovieSuggestionDto>());
+            }
+
+            try
+            {
+                var suggestions = await _tmdbCatalogService.GetLiveSuggestionsAsync(query, limit, cancellationToken);
+                return Ok(suggestions);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to retrieve suggestions for query {Query}", query);
+                return Ok(new List<MovieSuggestionDto>());
+            }
+        }
+
         [HttpGet("actor/{personId:int}/movies")]
         public async Task<IActionResult> GetMoviesByActor(
             int personId, [FromQuery] int page = 1, [FromQuery] string? genre = null,
