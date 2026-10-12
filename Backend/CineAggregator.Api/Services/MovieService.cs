@@ -47,6 +47,15 @@ namespace CineAggregator.Api.Services
             return totalScore / totalVotes;
         }
 
+        public Movie UpdateMovieRatings(string id, List<Rating> ratings)
+        {
+            double newAggregatedRating = CalculateAggregatedRating(ratings);
+            var updated = _mongoDbService.UpdateMovieRatings(id, ratings, newAggregatedRating);
+            return updated;
+        }
+
+        public bool DeleteMovie(string id) => _mongoDbService.DeleteMovie(id);
+
         public void ProcessMovie(Movie movie)
         {
             movie.AggregatedRating = CalculateAggregatedRating(movie.Ratings);

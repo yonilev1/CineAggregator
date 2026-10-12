@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getMovie } from '../services/movieService';
+import { getMovie, updateMovieRatings } from '../services/movieService';
+import { isAdmin } from '../services/authService';
 import Loading from '../components/Loading';
 
 function MovieDetails() {
@@ -9,12 +10,26 @@ function MovieDetails() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Admin Rating Edit State
+  const [isEditingRatings, setIsEditingRatings] = useState(false);
+  const [ratingsEditList, setRatingsEditList] = useState([]);
+  const [savingRatings, setSavingRatings] = useState(false);
+  const [editSuccessMsg, setEditSuccessMsg] = useState(null);
+  const [newSource, setNewSource] = useState('');
+  const [newScore, setNewScore] = useState('');
+  const [newVotes, setNewVotes] = useState('');
+
+  const adminUser = isAdmin();
+
   useEffect(() => {
     const fetchMovie = async () => {
       setLoading(true);
       try {
         const data = await getMovie(id);
         setMovie(data);
+        if (data && data.ratings) {
+          setRatingsEditList(data.ratings.map(r => ({ ...r })));
+        }
       } catch (err) {
         setError("Something went wrong. Please try again.");
       } finally {
@@ -23,6 +38,62 @@ function MovieDetails() {
     };
     fetchMovie();
   }, [id]);
+
+  const handleOpenEdit = () => {
+    setRatingsEditList(movie.ratings ? movie.ratings.map(r => ({ ...r })) : []);
+    setIsEditingRatings(true);
+    setEditSuccessMsg(null);
+  };
+
+  const handleRatingValueChange = (index, field, value) => {
+    const updated = [...ratingsEditList];
+    updated[index] = {
+      ...updated[index],
+      [field]: field === 'source' ? value : Number(value)
+    };
+    setRatingsEditList(updated);
+  };
+
+  const handleRemoveRatingItem = (index) => {
+    setRatingsEditList(ratingsEditList.filter((_, i) => i !== index));
+  };
+
+  const handleAddRatingItem = (e) => {
+    e.preventDefault();
+    if (!newSource.trim() || newScore === '' || newVotes === '') return;
+    const scoreVal = parseFloat(newScore);
+    const votesVal = parseInt(newVotes, 10);
+    if (scoreVal < 0 || scoreVal > 10) {
+      alert("Rating score must be between 0 and 10.");
+      return;
+    }
+    setRatingsEditList([
+      ...ratingsEditList,
+      { source: newSource.trim(), score: scoreVal, votes: votesVal }
+    ]);
+    setNewSource('');
+    setNewScore('');
+    setNewVotes('');
+  };
+
+  const handleSaveUpdatedRatings = async () => {
+    setSavingRatings(true);
+    setEditSuccessMsg(null);
+    try {
+      const updated = await updateMovieRatings(movie.id, ratingsEditList);
+      setMovie(prev => ({
+        ...prev,
+        ratings: updated.ratings,
+        aggregatedRating: updated.aggregatedRating
+      }));
+      setEditSuccessMsg("Ratings updated successfully!");
+      setIsEditingRatings(false);
+    } catch (err) {
+      alert(err.message || "Failed to update ratings.");
+    } finally {
+      setSavingRatings(false);
+    }
+  };
 
   if (loading) return <Loading />;
   if (error) return <p className="error-message">{error}</p>;
@@ -56,7 +127,22 @@ function MovieDetails() {
         <img src={poster} alt={movie.title} className="details-poster" />
         <div className="details-info">
           <h2>{movie.title} ({movie.releaseYear})</h2>
-          <h3 className="movie-rating">⭐ {Number(movie.aggregatedRating).toFixed(2)}</h3>
+          
+          <div className="rating-row">
+            <h3 className="movie-rating">⭐ {Number(movie.aggregatedRating).toFixed(2)}</h3>
+            {adminUser && (
+              <button
+                onClick={handleOpenEdit}
+                className="btn-admin-edit-ratings"
+                title="Administrator option to adjust movie ratings"
+              >
+                ⚙️ Manage Ratings (Admin)
+              </button>
+            )}
+          </div>
+
+          {editSuccessMsg && <div className="admin-alert success inline">{editSuccessMsg}</div>}
+
           <p className="description">{movie.description}</p>
           <div className="details-lists">
             <div className="list-group">
@@ -77,12 +163,130 @@ function MovieDetails() {
             <h4>Ratings by Source</h4>
             <ul>
               {movie.ratings?.map((r, i) => (
-                <li key={i}>{r.source}: {r.score}</li>
+                <li key={i}>{r.source}: <strong>{r.score}</strong> <small>({(r.votes || 0).toLocaleString()} votes)</small></li>
               ))}
+              {(!movie.ratings || movie.ratings.length === 0) && (
+                <li>No specific source ratings recorded.</li>
+              )}
             </ul>
           </div>
         </div>
       </div>
+
+      {/* Admin Inline Ratings Manager Modal / Panel */}
+      {isEditingRatings && adminUser && (
+        <div className="admin-modal-overlay">
+          <div className="admin-modal-content">
+            <div className="modal-header">
+              <h3>⚙️ Administrator: Manage Ratings for "{movie.title}"</h3>
+              <button onClick={() => setIsEditingRatings(false)} className="btn-close-modal">✕</button>
+            </div>
+            <p className="modal-note">
+              Adjust source scores or add new ones. Saving will recalculate the weighted Aggregated Rating according to formula:
+              <code>Sum(Score × Votes) / Sum(Votes)</code>
+            </p>
+
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Score (0-10)</th>
+                  <th>Votes</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ratingsEditList.map((r, idx) => (
+                  <tr key={idx}>
+                    <td>
+                      <input
+                        type="text"
+                        value={r.source}
+                        onChange={(e) => handleRatingValueChange(idx, 'source', e.target.value)}
+                        className="table-input"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="10"
+                        value={r.score}
+                        onChange={(e) => handleRatingValueChange(idx, 'score', e.target.value)}
+                        className="table-input"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min="0"
+                        value={r.votes}
+                        onChange={(e) => handleRatingValueChange(idx, 'votes', e.target.value)}
+                        className="table-input"
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRatingItem(idx)}
+                        className="btn-danger-small"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <form onSubmit={handleAddRatingItem} className="add-rating-inline-form modal-add">
+              <input
+                type="text"
+                placeholder="Source name"
+                value={newSource}
+                onChange={(e) => setNewSource(e.target.value)}
+                required
+              />
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="10"
+                placeholder="Score (0-10)"
+                value={newScore}
+                onChange={(e) => setNewScore(e.target.value)}
+                required
+              />
+              <input
+                type="number"
+                min="0"
+                placeholder="Votes"
+                value={newVotes}
+                onChange={(e) => setNewVotes(e.target.value)}
+                required
+              />
+              <button type="submit" className="btn-secondary">+ Add</button>
+            </form>
+
+            <div className="modal-actions">
+              <button
+                onClick={handleSaveUpdatedRatings}
+                disabled={savingRatings}
+                className="btn-primary"
+              >
+                {savingRatings ? 'Saving...' : '💾 Save & Recalculate'}
+              </button>
+              <button
+                onClick={() => setIsEditingRatings(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="cast-section">
         <h3>Cast</h3>

@@ -137,3 +137,49 @@ docker compose up -d --build
 
 This rebuilds the frontend and backend with the updated code. Do not add `-v` to `docker compose down`, so the MongoDB data volume is preserved.
 
+
+## 17. User Registration, Authentication, and Role-Based Access Control
+
+The system supports secure JSON Web Token (JWT) authentication with two distinct user roles:
+
+### Roles & Permissions
+
+| Capability | Regular User (`User`) | Administrator (`Admin`) |
+|---|---|---|
+| Register new account | ✅ Yes | ❌ Self-registration creates `User` |
+| Browse & search movies | ✅ Yes | ✅ Yes |
+| Filter & view cast / providers | ✅ Yes | ✅ Yes |
+| Personalized recommendations | ✅ Yes | ✅ Yes |
+| Manage & recalculate ratings | ❌ Access Denied | ✅ Full control via Admin Panel & Movie Details |
+| Modify administrative settings | ❌ Access Denied | ✅ Site announcement banner, registration toggle |
+| Delete movies from catalog | ❌ Access Denied | ✅ Dedicated deletion capability |
+| Access Admin Interface (`/admin`)| ❌ Access Denied | ✅ Protected dedicated UI |
+
+### Pre-Seeded Default Accounts
+
+When the application starts, it automatically seeds two accounts if they do not exist:
+
+1. **Administrator**:
+   - **Username**: `admin`
+   - **Password**: `Admin123!`
+   - **Role**: `Admin`
+
+2. **Regular User**:
+   - **Username**: `user`
+   - **Password**: `User123!`
+   - **Role**: `User`
+
+### Authentication Endpoints
+
+- `POST /api/auth/register` — Registers a regular user with role `User` and returns a JWT token.
+- `POST /api/auth/login` — Authenticates credentials and returns a JWT token with the user's role.
+- `GET /api/auth/me` — Protected endpoint returning current user details.
+
+### Protected Administrative Endpoints (`[Authorize(Roles = "Admin")]`)
+
+- `PUT /api/admin/movies/{id}/ratings` — Updates or adds rating sources for a movie and recalculates the weighted `AggregatedRating` using `Sum(Score × Votes) / Sum(Votes)`.
+- `DELETE /api/admin/movies/{id}` — Permanently removes a movie from the local database.
+- `GET /api/admin/settings` — Retrieves administrative configurations.
+- `PUT /api/admin/settings` — Updates application-wide settings (e.g. site announcement banner, public registration toggle).
+- `GET /api/admin/movies` — Lists stored movies for administrator management.
+- `GET /api/admin/users` — Lists registered users and their assigned roles.

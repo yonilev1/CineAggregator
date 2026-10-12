@@ -1,8 +1,10 @@
 using CineAggregator.Api.Models;
+using CineAggregator.Api.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -11,6 +13,8 @@ namespace CineAggregator.Api.Database
     public class MongoDbService
     {
         private readonly IMongoCollection<Movie> _movies;
+        private readonly IMongoCollection<User> _users;
+        private readonly IMongoCollection<AdminSettings> _settings;
         private readonly ILogger<MongoDbService> _logger;
 
         public MongoDbService(IConfiguration config, ILogger<MongoDbService> logger)
@@ -22,6 +26,10 @@ namespace CineAggregator.Api.Database
             var client = new MongoClient(connectionString);
             var database = client.GetDatabase(databaseName);
             _movies = database.GetCollection<Movie>("movies");
+            _users = database.GetCollection<User>("users");
+            _settings = database.GetCollection<AdminSettings>("settings");
+
+            SeedInitialData();
         }
 
         public List<Movie> GetAllMovies()
@@ -45,7 +53,7 @@ namespace CineAggregator.Api.Database
         {
             var stopWords = new HashSet<string> { "i", "a", "an", "the", "want", "where", "with", "about", "movie", "film", "show", "me", "find", "get", "is", "are", "was", "were", "to", "of", "in", "on", "and", "or", "that", "this", "it", "for", "has", "have", "do", "does" };
 
-            var words = query.Split(' ', System.StringSplitOptions.RemoveEmptyEntries)
+            var words = query.Split(' ', StringSplitOptions.RemoveEmptyEntries)
                              .Select(w => w.Trim().ToLower())
                              .Where(w => w.Length > 2 && !stopWords.Contains(w))
                              .ToList();
@@ -99,6 +107,103 @@ namespace CineAggregator.Api.Database
         public Movie GetMovieByExternalId(string id)
         {
             return _movies.Find(m => m.Id == id).FirstOrDefault();
+        }
+
+        public bool DeleteMovie(string id)
+        {
+            var result = _movies.DeleteOne(m => m.Id == id);
+            return result.DeletedCount > 0;
+        }
+
+        public Movie UpdateMovieRatings(string id, List<Rating> ratings, double aggregatedRating)
+        {
+            var filter = Builders<Movie>.Filter.Eq(m => m.Id, id);
+            var update = Builders<Movie>.Update
+                .Set(m => m.Ratings, ratings)
+                .Set(m => m.AggregatedRating, aggregatedRating);
+
+            _movies.UpdateOne(filter, update);
+            return GetMovieById(id);
+        }
+
+        // ================= User Authentication =================
+        public User GetUserByUsername(string username)
+        {
+            return _users.Find(u => u.Username.ToLower() == username.ToLower()).FirstOrDefault();
+        }
+
+        public void CreateUser(User user)
+        {
+            _users.InsertOne(user);
+        }
+
+        public List<User> GetAllUsers()
+        {
+            return _users.Find(_ => true).ToList();
+        }
+
+        // ================= Application Settings =================
+        public AdminSettings GetSettings()
+        {
+            var settings = _settings.Find(s => s.Id == "app_settings").FirstOrDefault();
+            if (settings == null)
+            {
+                settings = new AdminSettings();
+                _settings.InsertOne(settings);
+            }
+            return settings;
+        }
+
+        public void UpdateSettings(AdminSettings settings)
+        {
+            settings.Id = "app_settings";
+            _settings.ReplaceOne(s => s.Id == "app_settings", settings, new ReplaceOptions { IsUpsert = true });
+        }
+
+        // ================= Seed Data =================
+        private void SeedInitialData()
+        {
+            try
+            {
+                // Seed Admin if not exists
+                var admin = _users.Find(u => u.Username == "admin").FirstOrDefault();
+                if (admin == null)
+                {
+                    _users.InsertOne(new User
+                    {
+                        Username = "admin",
+                        PasswordHash = PasswordHelper.HashPassword("Admin123!"),
+                        Role = "Admin",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    _logger.LogInformation("Seeded default administrator: admin / Admin123!");
+                }
+
+                // Seed Regular User if not exists
+                var user = _users.Find(u => u.Username == "user").FirstOrDefault();
+                if (user == null)
+                {
+                    _users.InsertOne(new User
+                    {
+                        Username = "user",
+                        PasswordHash = PasswordHelper.HashPassword("User123!"),
+                        Role = "User",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    _logger.LogInformation("Seeded default user: user / User123!");
+                }
+
+                // Seed Default Settings
+                var settings = _settings.Find(s => s.Id == "app_settings").FirstOrDefault();
+                if (settings == null)
+                {
+                    _settings.InsertOne(new AdminSettings());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Initial seeding check failed (database may still be starting up).");
+            }
         }
     }
 }
